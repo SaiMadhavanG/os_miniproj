@@ -1,4 +1,0 @@
-P_ID	P_Name	Cost	Quantity
-2	Moto	12000	1
-3	Nokia	9999	5
-Total: 61995

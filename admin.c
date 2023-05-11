@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 
 #include "product.h"
 #define PORT 8080
@@ -41,6 +43,13 @@ int main()
     struct sockaddr_in cli;
     sd = setup_server(PORT, &addlen);
     printf("Server started\n");
+    int key = ftok(".", 'a');
+    int semid = semget(key, MAX_PRODUCTS + 1, 0);
+    if (semid == -1)
+    {
+        printf("Semaphore not found\n");
+        return 1;
+    }
     struct product products[MAX_PRODUCTS];
     if (!fork())
     {
@@ -162,36 +171,37 @@ int main()
                         strcpy(buffer, "success");
                         write(nsd, buffer, sizeof(buffer));
                     }
-                    else if (strcmp(temp.P_Name, "pay") == 0)
+                    else if (strcmp(temp.P_Name, "lockcart") == 0)
                     {
-                        int flag = 0;
-                        for (int i = 0; i < MAX_PRODUCTS; i++)
-                        {
-                            if (cart[i].P_ID != -1)
-                            {
-                                if (cart[i].quantity > set_buy_lock(cart[i].P_ID))
-                                {
-                                    flag = 1;
-                                }
-                            }
-                        }
-                        for (int i = 0; i < MAX_PRODUCTS; i++)
-                        {
-                            if (cart[i].P_ID != -1)
-                            {
-                                buy_product(cart[i], flag);
-                            }
-                        }
-                        if (flag)
+                        int res = lock_cart(cart);
+                        if (res < 0)
                         {
                             strcpy(buffer, "fail");
                             write(nsd, buffer, sizeof(buffer));
                         }
                         else
                         {
-                            clear_cart(cart);
                             strcpy(buffer, "success");
                             write(nsd, buffer, sizeof(buffer));
+                        }
+                    }
+                    else if (strcmp(temp.P_Name, "unlockcart") == 0)
+                    {
+                        unlock_cart(cart);
+                    }
+                    else if (strcmp(temp.P_Name, "pay") == 0)
+                    {
+                        int res = buy_products(cart);
+                        if (res < 0)
+                        {
+                            strcpy(buffer, "fail");
+                            write(nsd, buffer, sizeof(buffer));
+                        }
+                        else
+                        {
+                            strcpy(buffer, "success");
+                            write(nsd, buffer, sizeof(buffer));
+                            clear_cart(cart);
                         }
                     }
                     else if (strcmp(temp.P_Name, "exit") == 0)

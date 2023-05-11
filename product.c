@@ -3,6 +3,8 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 
 void create_datafile()
 {
@@ -22,18 +24,22 @@ void create_datafile()
 
 void read_from_file(struct product products[MAX_PRODUCTS], int size)
 {
-    struct flock lock;
-    lock.l_type = F_RDLCK;
+    int key = ftok(".", 'a');
+    int semid = semget(key, MAX_PRODUCTS, 0);
     int fd = open(DATAFILE, O_RDONLY, 0);
     if (fd < 0)
     {
         create_datafile();
         fd = open(DATAFILE, O_RDONLY, 0);
     }
-    fcntl(fd, F_SETLKW, &lock);
+    struct sembuf sb;
+    sb.sem_flg = 0;
+    sb.sem_num = MAX_PRODUCTS;
+    sb.sem_op = -1;
+    semop(semid, &sb, 1);
     read(fd, products, size);
-    lock.l_type = F_UNLCK;
-    fcntl(fd, F_SETLK, &lock);
+    sb.sem_op = 1;
+    semop(semid, &sb, 1);
     close(fd);
 }
 
@@ -49,30 +55,63 @@ void write_to_file(struct product products[MAX_PRODUCTS], int size)
     close(fd);
 }
 
-void lock_product(int index, int fd)
+void lock_product(int product_id)
 {
-    struct flock lock;
-    lock.l_type = F_WRLCK;
-    lock.l_whence = SEEK_SET;
-    lock.l_start = index * sizeof(struct product);
-    lock.l_len = sizeof(struct product);
-    fcntl(fd, F_SETLKW, &lock);
+    struct product products[MAX_PRODUCTS];
+    read_from_file(products, MAX_PRODUCTS * sizeof(struct product));
+    int index = -1;
+    for (int i = 0; i < MAX_PRODUCTS; i++)
+    {
+        if (product_id == products[i].P_ID)
+        {
+            index = i;
+            break;
+        }
+    }
+    int key = ftok(".", 'a');
+    int semid = semget(key, MAX_PRODUCTS + 1, 0);
+    struct sembuf sb;
+    sb.sem_flg = 0;
+    sb.sem_num = index;
+    sb.sem_op = -1;
+    semop(semid, &sb, 1);
+    printf("Product %d is locked\n", product_id);
 }
 
-void unlock_product(int index, int fd)
+void unlock_product(int product_id)
 {
-    struct flock lock;
-    lock.l_type = F_UNLCK;
-    lock.l_whence = SEEK_SET;
-    lock.l_start = index * sizeof(struct product);
-    lock.l_len = sizeof(struct product);
-    fcntl(fd, F_SETLK, &lock);
+    struct product products[MAX_PRODUCTS];
+    read_from_file(products, MAX_PRODUCTS * sizeof(struct product));
+    int index = -1;
+    for (int i = 0; i < MAX_PRODUCTS; i++)
+    {
+        if (product_id == products[i].P_ID)
+        {
+            index = i;
+            break;
+        }
+    }
+    int key = ftok(".", 'a');
+    int semid = semget(key, MAX_PRODUCTS + 1, 0);
+    struct sembuf sb;
+    sb.sem_flg = 0;
+    sb.sem_num = index;
+    sb.sem_op = 1;
+    semop(semid, &sb, 1);
+    printf("Product %d is unlocked\n", product_id);
 }
 
-void write_product_to_file(int fd, struct product product, int index)
+void write_product_to_file(struct product product, int index)
 {
+    int fd = open(DATAFILE, O_WRONLY, 0);
+    if (fd < 0)
+    {
+        create_datafile();
+        fd = open(DATAFILE, O_WRONLY, 0);
+    }
     lseek(fd, index * sizeof(struct product), SEEK_SET);
     write(fd, &product, sizeof(struct product));
+    close(fd);
 }
 
 void generate_log_file()
@@ -103,8 +142,6 @@ int add_product()
     {
         if (products[i].P_ID == -1)
         {
-            int fd = open(DATAFILE, O_WRONLY, 0);
-            lock_product(i, fd);
             printf("Enter product id: ");
             scanf("%d", &product.P_ID);
             printf("Enter product name: ");
@@ -114,9 +151,7 @@ int add_product()
             printf("Enter product quantity: ");
             scanf("%d", &product.quantity);
             products[i] = product;
-            write_product_to_file(fd, product, i);
-            unlock_product(i, fd);
-            close(fd);
+            write_product_to_file(product, i);
             printf("Product added\n");
             generate_log_file();
             return 0;
@@ -136,12 +171,10 @@ int del_product()
     {
         if (products[i].P_ID == product.P_ID)
         {
-            int fd = open(DATAFILE, O_WRONLY, 0);
-            lock_product(i, fd);
+            lock_product(products[i].P_ID);
             product.P_ID = -1;
-            write_product_to_file(fd, product, i);
-            unlock_product(i, fd);
-            close(fd);
+            write_product_to_file(product, i);
+            unlock_product(products[i].P_ID);
             printf("Product removed\n");
             generate_log_file();
             return 0;
@@ -160,25 +193,15 @@ int update_product()
     {
         if (products[i].P_ID == product.P_ID)
         {
-            int fd = open(DATAFILE, O_WRONLY, 0);
-            // lock_product(i, fd);
-            struct flock lock;
-            lock.l_type = F_WRLCK;
-            lock.l_whence = SEEK_SET;
-            lock.l_start = i * sizeof(struct product);
-            lock.l_len = sizeof(struct product);
-            fcntl(fd, F_SETLKW, &lock);
+            lock_product(products[i].P_ID);
             printf("Enter new price: ");
             scanf("%d", &product.cost);
             printf("Enter new quantity: ");
             scanf("%d", &product.quantity);
             products[i].cost = product.cost;
             products[i].quantity = product.quantity;
-            write_product_to_file(fd, products[i], i);
-            // unlock_product(i, fd);
-            lock.l_type = F_UNLCK;
-            fcntl(fd, F_SETLK, &lock);
-            close(fd);
+            write_product_to_file(products[i], i);
+            unlock_product(products[i].P_ID);
             printf("Product updated\n");
             generate_log_file();
             return 0;
@@ -226,27 +249,7 @@ int get_cost(int id)
     }
 }
 
-int set_buy_lock(int id)
-{
-    struct product products[MAX_PRODUCTS];
-    read_from_file(products, sizeof(products));
-    for (int i = 0; i < MAX_PRODUCTS; i++)
-    {
-        if (products[i].P_ID == id)
-        {
-            struct flock lock;
-            lock.l_type = F_WRLCK;
-            lock.l_whence = SEEK_SET;
-            lock.l_start = i * sizeof(struct product);
-            lock.l_len = sizeof(struct product);
-            int fd = open(DATAFILE, O_RDWR, 0);
-            fcntl(fd, F_SETLKW, &lock);
-            return products[i].quantity;
-        }
-    }
-}
-
-int buy_product(struct product product, int flag)
+int buy_product(struct product product)
 {
     struct product products[MAX_PRODUCTS];
     read_from_file(products, sizeof(products));
@@ -254,30 +257,79 @@ int buy_product(struct product product, int flag)
     {
         if (products[i].P_ID == product.P_ID)
         {
-            struct flock lock;
-            lock.l_type = F_UNLCK;
-            lock.l_whence = SEEK_SET;
-            lock.l_start = i * sizeof(struct product);
-            lock.l_len = sizeof(struct product);
-            int fd = open(DATAFILE, O_RDWR, 0);
-            if (flag)
-            {
-                fcntl(fd, F_SETLK, &lock);
-                close(fd);
-                return -1;
-            }
-            if (products[i].quantity >= product.quantity)
-            {
-                products[i].quantity -= product.quantity;
-                lseek(fd, i * sizeof(struct product), SEEK_SET);
-                write(fd, &products[i], sizeof(struct product));
-                fcntl(fd, F_SETLK, &lock);
-                return 0;
-            }
-            else
+            products[i].quantity -= product.quantity;
+            if (products[i].quantity < 0)
             {
                 return -1;
+            }
+            write_product_to_file(products[i], i);
+        }
+    }
+    return 0;
+}
+
+int get_quantity(int id)
+{
+    struct product products[MAX_PRODUCTS];
+    read_from_file(products, sizeof(products));
+    for (int i = 0; i < MAX_PRODUCTS; i++)
+    {
+        if (products[i].P_ID == id)
+        {
+            return products[i].quantity;
+        }
+    }
+}
+
+int unlock_cart(struct product cart[MAX_PRODUCTS])
+{
+    for (int i = 0; i < MAX_PRODUCTS; i++)
+    {
+        if (cart[i].P_ID != -1)
+        {
+            unlock_product(cart[i].P_ID);
+        }
+    }
+}
+
+int lock_cart(struct product cart[MAX_PRODUCTS])
+{
+    int flag = 0;
+    struct product products[MAX_PRODUCTS];
+    read_from_file(products, sizeof(products));
+    for (int i = 0; i < MAX_PRODUCTS; i++)
+    {
+        if (cart[i].P_ID != -1)
+        {
+            lock_product(cart[i].P_ID);
+            if (cart[i].quantity > get_quantity(cart[i].P_ID))
+            {
+                flag = 1;
             }
         }
     }
+    if (flag)
+    {
+        unlock_cart(cart);
+        return -1;
+    }
+    return 0;
+}
+
+int buy_products(struct product cart[MAX_PRODUCTS])
+{
+    int flag = 0;
+    for (int i = 0; i < MAX_PRODUCTS; i++)
+    {
+        if (cart[i].P_ID != -1)
+        {
+            flag += buy_product(cart[i]);
+            unlock_product(cart[i].P_ID);
+        }
+    }
+    if (flag < 0)
+    {
+        return -1;
+    }
+    return 0;
 }

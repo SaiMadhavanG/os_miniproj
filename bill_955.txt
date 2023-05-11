@@ -1,3 +1,0 @@
-P_ID	P_Name	Cost	Quantity
-4	RedMi	11999	20
-Total: 239980

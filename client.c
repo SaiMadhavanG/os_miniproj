@@ -227,27 +227,40 @@ int main()
             }
             else
             {
-                printf("Total amount: %d\n", total);
-                printf("Enter amount: ");
-                scanf("%d", &amount);
-                if (amount != total)
+                printf("Checking out...\n");
+                strcpy(temp.P_Name, "lockcart");
+                write(sd, &temp, sizeof(temp));
+                read(sd, buffer, sizeof(buffer));
+                if (strcmp(buffer, "success") == 0)
                 {
-                    printf("Incorrect amount\n");
-                }
-                else
-                {
-                    strcpy(temp.P_Name, "pay");
-                    write(sd, &temp, sizeof(temp));
-                    read(sd, buffer, sizeof(buffer));
-                    if (strcmp(buffer, "success") == 0)
+                    printf("Total amount: %d\n", total);
+                    printf("Enter amount: ");
+                    scanf("%d", &amount);
+                    if (amount != total)
                     {
-                        printf("Payment successful\n");
-                        generate_bill(products);
+                        printf("Incorrect amount\n");
+                        strcpy(temp.P_Name, "unlockcart");
+                        write(sd, &temp, sizeof(temp));
                     }
                     else
                     {
-                        printf("Payment failed\n");
+                        strcpy(temp.P_Name, "pay");
+                        write(sd, &temp, sizeof(temp));
+                        read(sd, buffer, sizeof(buffer));
+                        if (strcmp(buffer, "success") == 0)
+                        {
+                            printf("Payment successful\n");
+                            generate_bill(products);
+                        }
+                        else
+                        {
+                            printf("Payment failed\n");
+                        }
                     }
+                }
+                else
+                {
+                    printf("Check out failed\n");
                 }
             }
             break;
