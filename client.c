@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "product.h"
 
@@ -24,21 +25,26 @@ int connect_to_server(char *ip, int port)
     return sd;
 }
 
-void generate_bill(struct product cart[])
+void generate_bill(struct product cart[], int bill_no)
 {
     char filename[100];
     strcpy(filename, "bill_");
-    char pid[10];
-    sprintf(pid, "%d", getpid());
+    char pid[20], buffer[1024];
+    sprintf(pid, "%d_%d", getpid(), bill_no);
     strcat(filename, pid);
     strcat(filename, ".txt");
     int fd = open(filename, O_CREAT | O_RDWR, 0644), total = 0;
+    time_t rawtime;
+    struct tm *timeinfo;
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    sprintf(buffer, "Bill generated at %sBill issued to PID: %s\n\n", asctime(timeinfo), pid);
+    write(fd, buffer, strlen(buffer) * sizeof(char));
     write(fd, "P_ID\tP_Name\tCost\tQuantity\n", strlen("P_ID\tP_Name\tCost\tQuantity\n") * sizeof(char));
     for (int i = 0; i < MAX_PRODUCTS; i++)
     {
         if (cart[i].P_ID != -1)
         {
-            char buffer[1024];
             sprintf(buffer, "%d\t%s\t%d\t%d\n", cart[i].P_ID, cart[i].P_Name, cart[i].cost, cart[i].quantity);
             write(fd, buffer, strlen(buffer) * sizeof(char));
             total += cart[i].cost * cart[i].quantity;
@@ -48,8 +54,9 @@ void generate_bill(struct product cart[])
     char total_buffer[10];
     sprintf(total_buffer, "%d", total);
     write(fd, total_buffer, strlen(total_buffer) * sizeof(char));
+    write(fd, "\nPaid", strlen("\nPaid") * sizeof(char));
     close(fd);
-    printf("Bill generated\n");
+    printf("BILL: Bill generated\n");
 }
 
 int main()
@@ -58,16 +65,19 @@ int main()
     struct product products[MAX_PRODUCTS];
     if (sd < 0)
     {
-        printf("Connection failed\n");
+        printf("ERROR: Connection failed\n");
         return 1;
     }
-    int pid = getpid();
+    sleep(1);
+    int pid = getpid(), bill_no = 0;
     int product_id, quantity, flag;
     write(sd, &pid, sizeof(pid));
     read(sd, products, sizeof(products));
+    printf("Welcome user %d!\n", pid);
     printf("Connected to server\n");
     while (1)
     {
+        printf("\n=================================================================\n");
         printf("\nChoose an option:\n");
         printf("1. Show products\n");
         printf("2. Display cart\n");
@@ -75,7 +85,7 @@ int main()
         printf("4. Edit cart\n");
         printf("5. Payment window\n");
         printf("6. Exit\n");
-        int choice;
+        int choice, flag;
         char buffer[1024];
         struct product temp;
         scanf("%d", &choice);
@@ -86,12 +96,18 @@ int main()
             write(sd, &temp, sizeof(temp));
             read(sd, products, sizeof(products));
             printf("P_ID\tP_Name\tCost\tQuantity\n");
+            flag = 0;
             for (int i = 0; i < MAX_PRODUCTS; i++)
             {
                 if (products[i].P_ID != -1)
                 {
+                    flag = 1;
                     printf("%d\t%s\t%d\t%d\n", products[i].P_ID, products[i].P_Name, products[i].cost, products[i].quantity);
                 }
+            }
+            if (!flag)
+            {
+                printf("ERROR: No products in store\n");
             }
             break;
         case 2:
@@ -99,21 +115,31 @@ int main()
             write(sd, &temp, sizeof(temp));
             read(sd, products, sizeof(products));
             printf("P_ID\tP_Name\tCost\tQuantity\n");
+            flag = 0;
             for (int i = 0; i < MAX_PRODUCTS; i++)
             {
                 if (products[i].P_ID != -1)
                 {
+                    flag = 1;
                     printf("%d\t%s\t%d\t%d\n", products[i].P_ID, products[i].P_Name, products[i].cost, products[i].quantity);
                 }
+            }
+            if (!flag)
+            {
+                printf("ERROR: Cart is empty\n");
             }
             break;
         case 3:
             printf("Enter product id: ");
-
             scanf("%d", &product_id);
             printf("Enter quantity: ");
             scanf("%d", &quantity);
             flag = 0;
+            if (quantity < 1)
+            {
+                printf("ERROR: Quantitiy must be positive\n");
+                flag = 1;
+            }
             strcpy(temp.P_Name, "show");
             write(sd, &temp, sizeof(temp));
             read(sd, products, sizeof(products));
@@ -123,7 +149,7 @@ int main()
                 {
                     if (products[i].quantity < quantity)
                     {
-                        printf("Insufficient quantity\n");
+                        printf("ERROR: Insufficient quantity\n");
                         flag = 1;
                     }
                     break;
@@ -131,7 +157,7 @@ int main()
                 if (i == MAX_PRODUCTS - 1 && flag == 0)
                 {
                     flag = 1;
-                    printf("Invalid product id\n");
+                    printf("ERROR: Invalid product id\n");
                 }
             }
             if (flag)
@@ -143,11 +169,11 @@ int main()
             read(sd, buffer, sizeof(buffer));
             if (strcmp(buffer, "success") == 0)
             {
-                printf("Items added to the cart\n");
+                printf("SUCCESS: Items added to the cart\n");
             }
             else
             {
-                printf("Item already in cart\n");
+                printf("ERROR: Item already in cart\n");
             }
             break;
         case 4:
@@ -156,6 +182,11 @@ int main()
             printf("Enter quantity: ");
             scanf("%d", &quantity);
             flag = 0;
+            if (quantity < 1)
+            {
+                printf("ERROR: Quantitiy must be positive\n");
+                flag = 1;
+            }
             strcpy(temp.P_Name, "show");
             write(sd, &temp, sizeof(temp));
             read(sd, products, sizeof(products));
@@ -165,7 +196,7 @@ int main()
                 {
                     if (products[i].quantity < quantity)
                     {
-                        printf("Insufficient quantity\n");
+                        printf("ERROR: Insufficient quantity\n");
                         flag = 1;
                     }
                     break;
@@ -173,7 +204,7 @@ int main()
                 if (i == MAX_PRODUCTS - 1 && flag == 0)
                 {
                     flag = 1;
-                    printf("Invalid product id\n");
+                    printf("ERROR: Invalid product id\n");
                 }
             }
             strcpy(temp.P_Name, "cart");
@@ -188,7 +219,7 @@ int main()
                 if (i == MAX_PRODUCTS - 1 && flag == 0)
                 {
                     flag = 1;
-                    printf("Product not in cart\n");
+                    printf("ERROR: Product not in cart\n");
                 }
             }
             if (flag)
@@ -200,14 +231,18 @@ int main()
             read(sd, buffer, sizeof(buffer));
             if (strcmp(buffer, "success") == 0)
             {
-                printf("Cart items have been edited\n");
+                printf("SUCCESS: Cart items have been edited\n");
             }
             else
             {
-                printf("Error\n");
+                printf("ERROR: Unkown Error\n");
             }
             break;
         case 5:
+            printf("WAIT: Checking out...\n");
+            strcpy(temp.P_Name, "lockcart");
+            write(sd, &temp, sizeof(temp));
+            read(sd, buffer, sizeof(buffer));
             strcpy(temp.P_Name, "cart");
             write(sd, &temp, sizeof(temp));
             read(sd, products, sizeof(products));
@@ -223,14 +258,10 @@ int main()
             }
             if (total == 0)
             {
-                printf("Cart is empty\n");
+                printf("ERROR: Cart is empty\n");
             }
             else
             {
-                printf("Checking out...\n");
-                strcpy(temp.P_Name, "lockcart");
-                write(sd, &temp, sizeof(temp));
-                read(sd, buffer, sizeof(buffer));
                 if (strcmp(buffer, "success") == 0)
                 {
                     printf("Total amount: %d\n", total);
@@ -238,7 +269,7 @@ int main()
                     scanf("%d", &amount);
                     if (amount != total)
                     {
-                        printf("Incorrect amount\n");
+                        printf("ERROR: Incorrect amount\n");
                         strcpy(temp.P_Name, "unlockcart");
                         write(sd, &temp, sizeof(temp));
                     }
@@ -249,29 +280,30 @@ int main()
                         read(sd, buffer, sizeof(buffer));
                         if (strcmp(buffer, "success") == 0)
                         {
-                            printf("Payment successful\n");
-                            generate_bill(products);
+                            printf("SUCCESS: Payment successful\n");
+                            generate_bill(products, ++bill_no);
                         }
                         else
                         {
-                            printf("Payment failed\n");
+                            printf("ERROR: Payment failed\n");
                         }
                     }
                 }
                 else
                 {
-                    printf("Check out failed\n");
+                    printf("ERROR: Check out failed\n");
                 }
             }
             break;
         case 6:
             strcpy(temp.P_Name, "exit");
+            printf("Thank you for shopping with us!\n");
             write(sd, &temp, sizeof(temp));
             close(sd);
             return 0;
             break;
         default:
-            printf("Invalid choice\n");
+            printf("ERROR: Invalid choice\n");
             break;
         }
     }

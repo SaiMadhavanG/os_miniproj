@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
+#include <time.h>
 
 void create_datafile()
 {
@@ -24,22 +25,13 @@ void create_datafile()
 
 void read_from_file(struct product products[MAX_PRODUCTS], int size)
 {
-    int key = ftok(".", 'a');
-    int semid = semget(key, MAX_PRODUCTS, 0);
     int fd = open(DATAFILE, O_RDONLY, 0);
     if (fd < 0)
     {
         create_datafile();
         fd = open(DATAFILE, O_RDONLY, 0);
     }
-    struct sembuf sb;
-    sb.sem_flg = 0;
-    sb.sem_num = MAX_PRODUCTS;
-    sb.sem_op = -1;
-    semop(semid, &sb, 1);
     read(fd, products, size);
-    sb.sem_op = 1;
-    semop(semid, &sb, 1);
     close(fd);
 }
 
@@ -69,13 +61,13 @@ void lock_product(int product_id)
         }
     }
     int key = ftok(".", 'a');
-    int semid = semget(key, MAX_PRODUCTS + 1, 0);
+    int semid = semget(key, MAX_PRODUCTS, 0);
     struct sembuf sb;
     sb.sem_flg = 0;
     sb.sem_num = index;
     sb.sem_op = -1;
     semop(semid, &sb, 1);
-    printf("Product %d is locked\n", product_id);
+    printf("(server): Product %d is locked\n", product_id);
 }
 
 void unlock_product(int product_id)
@@ -92,13 +84,13 @@ void unlock_product(int product_id)
         }
     }
     int key = ftok(".", 'a');
-    int semid = semget(key, MAX_PRODUCTS + 1, 0);
+    int semid = semget(key, MAX_PRODUCTS, 0);
     struct sembuf sb;
     sb.sem_flg = 0;
     sb.sem_num = index;
     sb.sem_op = 1;
     semop(semid, &sb, 1);
-    printf("Product %d is unlocked\n", product_id);
+    printf("(server): Product %d is unlocked\n", product_id);
 }
 
 void write_product_to_file(struct product product, int index)
@@ -117,14 +109,24 @@ void write_product_to_file(struct product product, int index)
 void generate_log_file()
 {
     int fd = open(LOGFILE, O_CREAT | O_RDWR, 0644), res;
-    write(fd, "P_ID\tP_Name\tCost\tQuantity\n", strlen("P_ID\tP_Name\tCost\tQuantity\n") * sizeof(char));
+    char temp[1], buffer[1024];
+    while (read(fd, temp, 1))
+    {
+    }
+    time_t rawtime;
+    struct tm *timeinfo;
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    sprintf(buffer, "\nLog generated at %s", asctime(timeinfo));
+    write(fd, buffer, strlen(buffer) * sizeof(char));
+    write(fd, "\nP_ID\tP_Name\tCost\tQuantity", strlen("\nP_ID\tP_Name\tCost\tQuantity") * sizeof(char));
     struct product products[MAX_PRODUCTS];
     read_from_file(products, sizeof(products));
+    write(fd, "\n", 1);
     for (int i = 0; i < MAX_PRODUCTS; i++)
     {
         if (products[i].P_ID != -1)
         {
-            char buffer[1024];
             sprintf(buffer, "%d\t%s\t%d\t%d\n", products[i].P_ID, products[i].P_Name, products[i].cost, products[i].quantity);
             write(fd, buffer, strlen(buffer) * sizeof(char));
         }
@@ -157,7 +159,7 @@ int add_product()
             return 0;
         }
     }
-    printf("Max products reached\n");
+    printf("SUCCESS: Max products reached\n");
 }
 
 int del_product()
@@ -175,9 +177,13 @@ int del_product()
             product.P_ID = -1;
             write_product_to_file(product, i);
             unlock_product(products[i].P_ID);
-            printf("Product removed\n");
+            printf("SUCCESS: Product removed\n");
             generate_log_file();
             return 0;
+        }
+        if (i == MAX_PRODUCTS - 1)
+        {
+            printf("ERROR: Product not found\n");
         }
     }
 }
@@ -202,9 +208,13 @@ int update_product()
             products[i].quantity = product.quantity;
             write_product_to_file(products[i], i);
             unlock_product(products[i].P_ID);
-            printf("Product updated\n");
+            printf("SUCCESS: Product updated\n");
             generate_log_file();
             return 0;
+        }
+        if (i == MAX_PRODUCTS - 1)
+        {
+            printf("ERROR: Product not found\n");
         }
     }
 }
@@ -214,12 +224,18 @@ void show_products()
     struct product products[MAX_PRODUCTS];
     read_from_file(products, sizeof(products));
     printf("P_ID\tP_Name\tCost\tQuantity\n");
+    int flag = 0;
     for (int i = 0; i < MAX_PRODUCTS; i++)
     {
         if (products[i].P_ID != -1)
         {
+            flag = 1;
             printf("%d\t%s\t%d\t%d\n", products[i].P_ID, products[i].P_Name, products[i].cost, products[i].quantity);
         }
+    }
+    if (!flag)
+    {
+        printf("ERROR: No products found\n");
     }
 }
 
@@ -302,6 +318,7 @@ int lock_cart(struct product cart[MAX_PRODUCTS])
         if (cart[i].P_ID != -1)
         {
             lock_product(cart[i].P_ID);
+            cart[i].cost = get_cost(cart[i].P_ID);
             if (cart[i].quantity > get_quantity(cart[i].P_ID))
             {
                 flag = 1;

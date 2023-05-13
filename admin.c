@@ -42,12 +42,12 @@ int main()
     int sd, addlen;
     struct sockaddr_in cli;
     sd = setup_server(PORT, &addlen);
-    printf("Server started\n");
+    printf("(server): Server started\n");
     int key = ftok(".", 'a');
-    int semid = semget(key, MAX_PRODUCTS + 1, 0);
+    int semid = semget(key, MAX_PRODUCTS, 0);
     if (semid == -1)
     {
-        printf("Semaphore not found\n");
+        printf("ERROR: Semaphore not found\n");
         return 1;
     }
     struct product products[MAX_PRODUCTS];
@@ -56,6 +56,7 @@ int main()
         printf("Welcome, admin!\n");
         while (1)
         {
+            printf("\n=================================================================\n");
             printf("\nChoose an option:\n");
             printf("1. Add product\n");
             printf("2. Remove product\n");
@@ -82,10 +83,10 @@ int main()
             case 5:
                 printf("Exiting...\n");
                 kill(getppid(), SIGKILL);
-                printf("Server down\n");
+                printf("(server): Server down\n");
                 return 0;
             default:
-                printf("Invalid choice\n");
+                printf("ERROR: Invalid choice\n");
                 break;
             }
         }
@@ -94,7 +95,7 @@ int main()
     {
         while (1)
         {
-            printf("Waiting for connection...\n");
+            printf("(server): Waiting for connection...\n");
             int nsd = accept(sd, (struct sockaddr *)&cli, &addlen);
             if (!fork())
             {
@@ -104,7 +105,7 @@ int main()
                 clear_cart(cart);
                 read(nsd, &cli_pid, sizeof(cli_pid));
                 write(nsd, products, sizeof(products));
-                printf("Connection established with : %d\n", cli_pid);
+                printf("(server): Connection established with : %d\n", cli_pid);
                 while (1)
                 {
                     char buffer[1024];
@@ -206,7 +207,7 @@ int main()
                     }
                     else if (strcmp(temp.P_Name, "exit") == 0)
                     {
-                        printf("Closing connection with %d...\n", cli_pid);
+                        printf("(server): Closing connection with %d...\n", cli_pid);
                         close(nsd);
                         exit(0);
                     }

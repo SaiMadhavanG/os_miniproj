@@ -19,14 +19,13 @@ union semun
 int main()
 {
     int key = ftok(".", 'a');
-    int semid = semget(key, MAX_PRODUCTS + 1, IPC_CREAT | 0666);
+    int semid = semget(key, MAX_PRODUCTS, IPC_CREAT | 0666);
     union semun su;
-    unsigned short arr[MAX_PRODUCTS + 1];
+    unsigned short arr[MAX_PRODUCTS];
     for (int i = 0; i < MAX_PRODUCTS; i++)
     {
         arr[i] = 1;
     }
-    arr[MAX_PRODUCTS] = 5;
     su.array = arr;
     semctl(semid, 0, SETALL, su);
     printf("Semaphore created\n");
